@@ -604,6 +604,12 @@ config LWQ_TEST
 	help
           Run boot-time test of light-weight queuing.
 
+#
+# Machine Learning (ML) library configuration
+#
+
+source "lib/ml-lib/Kconfig"
+
 endmenu
 
 config GENERIC_IOREMAP
