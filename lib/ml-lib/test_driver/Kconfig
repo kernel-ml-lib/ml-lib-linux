@@ -1,17 +1,16 @@
 # SPDX-License-Identifier: GPL-2.0
 
 config ML_LIB_TEST_DRIVER
-	tristate "ML library testing character device driver"
+	tristate "ML library testing misc device driver"
 	depends on ML_LIB
 	default n
 	help
-	  This is a ML library testing character device driver for
+	  This is a ML library testing misc device driver for
 	  testing generic ML library functionality. It provides:
 
 	  - Basic read/write operations
 	  - IOCTL interface for device control
-	  - Sysfs attributes for runtime information
-	  - Procfs entry for debugging
+	  - Tracepoints for observability (ml_lib_test:*)
 
 	  The driver creates a /dev/mllibdev device node that can be
 	  used to read and write data to a kernel buffer.

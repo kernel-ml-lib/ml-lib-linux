@@ -2,4 +2,4 @@
 
 obj-$(CONFIG_ML_LIB_TEST_DRIVER) += ml_lib_test_dev.o
 
-ml_lib_test_dev-y := ml_lib_char_dev.o
+ml_lib_test_dev-y := ml_lib_misc_dev.o

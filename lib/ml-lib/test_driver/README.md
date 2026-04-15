@@ -1,6 +1,6 @@
 # ML Library Testing Device Driver (mllibdev)
 
-ML library testing character device driver for the Linux kernel:
+ML library testing misc device driver for the Linux kernel:
 - Basic read/write operations
 - IOCTL interface for device control
 - Sysfs attributes for runtime information
@@ -8,7 +8,7 @@ ML library testing character device driver for the Linux kernel:
 
 ## Features
 
-### Character Device Operations
+### Device Operations
 - **Open/Close**: Device can be opened and closed multiple times
 - **Read**: Read data from a kernel buffer
 - **Write**: Write data to a kernel buffer (1KB capacity)
@@ -36,8 +36,8 @@ Located at `/proc/mllibdev`: Provides formatted driver information
 1. Configure the kernel to build mllibdev as a module:
    ```bash
    make menuconfig
-   # Navigate to: Library routines -> ML library testing character device driver
-   # Select: <M> ML library testing character device driver
+   # Navigate to: Library routines -> ML library testing misc device driver
+   # Select: <M> ML library testing misc device driver
    ```
 
 2. Build the module:
@@ -50,8 +50,8 @@ Located at `/proc/mllibdev`: Provides formatted driver information
 1. Configure the kernel:
    ```bash
    make menuconfig
-   # Navigate to: Library routines -> ML library testing character device driver
-   # Select: <*> ML library testing character device driver
+   # Navigate to: Library routines -> ML library testing misc device driver
+   # Select: <*> ML library testing misc device driver
    ```
 
 2. Build the kernel:
@@ -86,10 +86,8 @@ sudo dmesg | tail -20
 You should see messages like:
 ```
 ml_lib_test_dev: Initializing driver
-ml_lib_test_dev: Device number allocated: XXX:0
 ml_lib_test_dev: Driver initialized successfully
 ml_lib_test_dev: Device created at /dev/mllibdev
-ml_lib_test_dev: Proc entry created at /proc/mllibdev
 ```
 
 ## Testing the Driver
@@ -117,7 +115,7 @@ cat /proc/mllibdev
 1. Compile the test program:
    ```bash
    cd lib/ml-lib/test_driver/test_application
-   gcc -o ml_lib_test_dev test_ml_lib_char_dev.c
+   gcc -o ml_lib_test_dev test_ml_lib_misc_dev.c
    ```
 
 2. Run the test program:
@@ -199,7 +197,7 @@ sudo dmesg | tail -10
 ls -l /dev/mllibdev
 
 # Manually create if needed (shouldn't be necessary)
-sudo mknod /dev/mllibdev c MAJOR MINOR
+sudo mknod /dev/mllibdev c 10 MINOR
 ```
 
 ### Permission denied

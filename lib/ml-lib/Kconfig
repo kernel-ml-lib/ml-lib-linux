@@ -6,6 +6,9 @@
 
 config ML_LIB
 	tristate "ML library support"
+	depends on BPF_SYSCALL
+	depends on BPF_JIT
+	select TRACEPOINTS
 	help
 	  Machine Learning (ML) library has goal to provide
 	  the interaction and communication of ML models in

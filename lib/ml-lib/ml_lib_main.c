@@ -7,10 +7,14 @@
 
 #include <linux/module.h>
 #include <linux/kernel.h>
+#include <linux/idr.h>
+#include <linux/refcount.h>
 
 #include <linux/ml-lib/ml_lib.h>
 
-#include "sysfs.h"
+#include "bpf.h"
+
+#include <trace/events/ml_lib.h>
 
 #define UNKNOWN_SUBSYSTEM_NAME "unknown_subsystem"
 #define UNKNOWN_ML_MODEL_NAME "unknown_model"
@@ -175,11 +179,10 @@ EXPORT_SYMBOL(free_request_config);
 
 int ml_model_create(struct ml_lib_model *ml_model,
 		    const char *subsystem_name,
-		    const char *model_name,
-		    struct kobject *subsystem_kobj)
+		    const char *model_name)
 {
-	struct kobject *parent = NULL;
 	size_t size;
+	int old_state;
 	int err = 0;
 
 	if (!ml_model)
@@ -195,18 +198,13 @@ int ml_model_create(struct ml_lib_model *ml_model,
 	else
 		ml_model->model_name = model_name;
 
-	if (!subsystem_kobj)
-		parent = kernel_kobj;
-	else
-		parent = subsystem_kobj;
-
 	spin_lock_init(&ml_model->parent_state_lock);
 	spin_lock_init(&ml_model->options_lock);
 	spin_lock_init(&ml_model->dataset_lock);
 
-	err = ml_model_create_sysfs_group(ml_model, parent);
+	err = ml_model_register_bpf(ml_model);
 	if (err) {
-		pr_err("ml_lib: failed to create sysfs group: err %d\n", err);
+		pr_err("ml_lib: failed to register BPF model: err %d\n", err);
 		goto finish_model_create;
 	}
 
@@ -216,7 +214,7 @@ int ml_model_create(struct ml_lib_model *ml_model,
 		ml_model->parent = allocate_subsystem_object(size, GFP_KERNEL);
 		if (unlikely(!ml_model->parent)) {
 			err = -ENOMEM;
-			goto remove_sysfs_group;
+			goto unregister_bpf;
 		}
 
 		atomic_set(&ml_model->parent->type, ML_LIB_GENERIC_SUBSYSTEM);
@@ -225,16 +223,19 @@ int ml_model_create(struct ml_lib_model *ml_model,
 		if (unlikely(err)) {
 			pr_err("ml_lib: failed to create ML model: err %d\n",
 				err);
-			goto remove_sysfs_group;
+			goto unregister_bpf;
 		}
 	}
 
+	old_state = atomic_read(&ml_model->state);
 	atomic_set(&ml_model->state, ML_LIB_MODEL_CREATED);
+	trace_ml_lib_state_change(ml_model->model_id,
+				  old_state, ML_LIB_MODEL_CREATED);
 
 	return 0;
 
-remove_sysfs_group:
-	ml_model_delete_sysfs_group(ml_model);
+unregister_bpf:
+	ml_model_unregister_bpf(ml_model);
 
 finish_model_create:
 	return err;
@@ -245,6 +246,7 @@ int ml_model_init(struct ml_lib_model *ml_model,
 		  struct ml_lib_model_options *options)
 {
 	struct ml_lib_model_options *old_options;
+	int old_state;
 	int err = 0;
 
 	if (!ml_model)
@@ -269,7 +271,10 @@ int ml_model_init(struct ml_lib_model *ml_model,
 	synchronize_rcu();
 	free_ml_model_options(old_options);
 
+	old_state = atomic_read(&ml_model->state);
 	atomic_set(&ml_model->state, ML_LIB_MODEL_INITIALIZED);
+	trace_ml_lib_state_change(ml_model->model_id,
+				  old_state, ML_LIB_MODEL_INITIALIZED);
 
 finish_model_init:
 	return err;
@@ -299,11 +304,16 @@ EXPORT_SYMBOL(ml_model_re_init);
 int ml_model_start(struct ml_lib_model *ml_model,
 		   struct ml_lib_model_run_config *config)
 {
+	int old_state;
+
 	if (!ml_model)
 		return -EINVAL;
 
 	/* TODO: implement ML model start logic*/
+	old_state = atomic_read(&ml_model->state);
 	atomic_set(&ml_model->state, ML_LIB_MODEL_STARTED);
+	trace_ml_lib_state_change(ml_model->model_id,
+				  old_state, ML_LIB_MODEL_STARTED);
 	pr_err("ml_lib: TODO: implement start ML model\n");
 	return 0;
 }
@@ -311,11 +321,16 @@ EXPORT_SYMBOL(ml_model_start);
 
 int ml_model_stop(struct ml_lib_model *ml_model)
 {
+	int old_state;
+
 	if (!ml_model)
 		return -EINVAL;
 
 	/* TODO: implement ML model stop logic*/
+	old_state = atomic_read(&ml_model->state);
 	atomic_set(&ml_model->state, ML_LIB_MODEL_STOPPED);
+	trace_ml_lib_state_change(ml_model->model_id,
+				  old_state, ML_LIB_MODEL_STOPPED);
 	pr_err("ml_lib: TODO: implement stop ML model\n");
 	return 0;
 }
@@ -325,13 +340,17 @@ void ml_model_destroy(struct ml_lib_model *ml_model)
 {
 	struct ml_lib_model_options *old_options;
 	struct ml_lib_dataset *old_dataset;
+	int old_state;
 
 	if (!ml_model)
 		return;
 
+	old_state = atomic_read(&ml_model->state);
 	atomic_set(&ml_model->state, ML_LIB_MODEL_SHUTTING_DOWN);
+	trace_ml_lib_state_change(ml_model->model_id,
+				  old_state, ML_LIB_MODEL_SHUTTING_DOWN);
 
-	ml_model_delete_sysfs_group(ml_model);
+	ml_model_unregister_bpf(ml_model);
 
 	spin_lock(&ml_model->options_lock);
 	old_options = rcu_dereference_protected(ml_model->options,
@@ -366,7 +385,10 @@ void ml_model_destroy(struct ml_lib_model *ml_model)
 	} else
 		ml_model->model_ops->destroy(ml_model);
 
+	old_state = atomic_read(&ml_model->state);
 	atomic_set(&ml_model->state, ML_LIB_MODEL_STATE_MAX);
+	trace_ml_lib_state_change(ml_model->model_id,
+				  old_state, ML_LIB_MODEL_STATE_MAX);
 }
 EXPORT_SYMBOL(ml_model_destroy);
 
@@ -383,13 +405,16 @@ int ml_model_get_dataset(struct ml_lib_model *ml_model,
 	struct ml_lib_dataset *old_dataset;
 	struct ml_lib_dataset *new_dataset;
 	size_t desc_size = sizeof(struct ml_lib_dataset);
-	int state;
+	int state, old_state;
 	int err = 0;
 
 	if (!ml_model)
 		return -EINVAL;
 
+	old_state = atomic_read(&ml_model->state);
 	atomic_set(&ml_model->state, ML_LIB_MODEL_RUNNING);
+	trace_ml_lib_state_change(ml_model->model_id,
+				  old_state, ML_LIB_MODEL_RUNNING);
 
 	rcu_read_lock();
 	old_dataset = rcu_dereference(ml_model->dataset);
@@ -462,6 +487,10 @@ int ml_model_get_dataset(struct ml_lib_model *ml_model,
 	rcu_assign_pointer(ml_model->dataset, new_dataset);
 	spin_unlock(&ml_model->dataset_lock);
 	synchronize_rcu();
+
+	trace_ml_lib_dataset_update(ml_model->model_id,
+				    atomic_read(&new_dataset->type),
+				    atomic_read(&new_dataset->state));
 
 	if (!ml_model->dataset_ops || !ml_model->dataset_ops->destroy) {
 		/*
@@ -537,6 +566,10 @@ int ml_model_discard_dataset(struct ml_lib_model *ml_model)
 	rcu_assign_pointer(ml_model->dataset, new_dataset);
 	spin_unlock(&ml_model->dataset_lock);
 	synchronize_rcu();
+
+	trace_ml_lib_dataset_update(ml_model->model_id,
+				    atomic_read(&new_dataset->type),
+				    atomic_read(&new_dataset->state));
 
 	if (!ml_model->dataset_ops || !ml_model->dataset_ops->free)
 		free_dataset(old_dataset);

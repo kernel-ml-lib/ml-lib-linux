@@ -303,8 +303,8 @@ struct ml_lib_model_operations {
  * @system_state_ops: subsystem state specialized operations
  * @dataset_ops: dataset specialized operations
  * @request_config_ops: specialized dataset configuration operations
- * @kobj: /sys/<subsystem>/<ml_model>/ ML model object
- * @kobj_unregister: completion state for <ml_model> kernel object
+ * @model_id: unique ID in the BPF IDR registry
+ * @refcount: reference count for BPF kfunc acquire/release
  */
 struct ml_lib_model {
 	atomic_t mode;
@@ -328,9 +328,9 @@ struct ml_lib_model {
 	struct ml_lib_dataset_operations *dataset_ops;
 	struct ml_lib_request_config_operations *request_config_ops;
 
-	/* /sys/<subsystem>/<ml_model>/ */
-	struct kobject kobj;
-	struct completion kobj_unregister;
+	/* BPF IDR registry */
+	u32 model_id;
+	refcount_t refcount;
 };
 
 /* ML library API */
@@ -350,8 +350,7 @@ void free_request_config(struct ml_lib_request_config *config);
 
 int ml_model_create(struct ml_lib_model *ml_model,
 		    const char *subsystem_name,
-		    const char *model_name,
-		    struct kobject *subsystem_kobj);
+		    const char *model_name);
 int ml_model_init(struct ml_lib_model *ml_model,
 		  struct ml_lib_model_options *options);
 int ml_model_re_init(struct ml_lib_model *ml_model,
